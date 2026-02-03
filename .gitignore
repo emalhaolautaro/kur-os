@@ -1,3 +1,21 @@
+# --- Rust ---
 /target
-Cargo.lock
-.vswhere
+# Cargo.lock  <-- NO lo pongas aquí si es una aplicación
+
+# --- IDEs y Editores ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Archivos de Sistema ---
+.DS_Store
+Thumbs.db
+
+# --- Variables de Entorno y Secretos ---
+.env
+.env.*
+!.env.example
+
+# --- Temporales de Rust ---
+**/*.rs.bk
