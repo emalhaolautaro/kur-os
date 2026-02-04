@@ -12,6 +12,10 @@ x86_64 = "0.14.2"
 uart_16550 = "0.3.0"
 
 [package.metadata.bootimage]
+run-args = [
+    "-serial", "stdio",
+    "-accel", "tcg"
+]
 test-args = [
     "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", 
     "-serial", "stdio", 
