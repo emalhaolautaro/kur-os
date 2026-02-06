@@ -79,13 +79,10 @@ impl Writer {
     fn new_line(&mut self) {
         for row in 1..BUFFER_HEIGHT {
             for col in 0..BUFFER_WIDTH {
-                // Leemos el carácter de abajo
                 let character = self.buffer.chars[row][col].read();
-                // Lo escribimos en la fila de arriba
                 self.buffer.chars[row - 1][col].write(character);
             }
         }
-        // Una vez movido todo, limpiamos la última fila
         self.clear_row(BUFFER_HEIGHT - 1);
         self.column_position = 0;
     }
@@ -103,9 +100,7 @@ impl Writer {
     pub fn write_string(&mut self, s: &str) {
         for byte in s.bytes() {
             match byte {
-                // Soportamos ASCII imprimible y nueva línea
                 0x20..=0x7e | b'\n' => self.write_byte(byte),
-                // Para otros caracteres, imprimimos un bloque (■)
                 _ => self.write_byte(0xfe),
             }
         }
@@ -171,9 +166,16 @@ fn test_println_many() {
 #[test_case]
 fn test_println_output() {
     let s = "Some text in the VGA text buffer";
-    println!("{}", s);
-    for (i, c) in s.chars().enumerate() {
-        let screen_char = WRITER.lock().buffer.chars[BUFFER_HEIGHT - 2][i].read();
-        assert_eq!(char::from(screen_char.ascii_character), c);
-    }
+
+    use core::fmt::Write;
+    use x86_64::instructions::interrupts;
+
+    interrupts::without_interrupts(|| {
+        let mut writer = WRITER.lock();
+        writeln!(writer, "\n{}", s).expect("writeln falló");
+        for (i, c) in s.chars().enumerate() {
+            let screen_char = writer.buffer.chars[BUFFER_HEIGHT - 2][i].read();
+            assert_eq!(char::from(screen_char.ascii_character), c);
+        }
+    });
 }
