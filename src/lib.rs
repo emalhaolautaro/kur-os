@@ -17,6 +17,7 @@ pub mod vga_buffer;
 
 pub mod gdt;
 pub mod interrupts;
+pub mod memory;
 
 // ----------------- KERNEL RUNTIME -----------------
 
@@ -68,8 +69,16 @@ pub fn test_panic_handler(info: &PanicInfo) -> ! {
 // ----------------- ENTRY POINTS DE TEST -----------------
 
 #[cfg(test)]
-#[unsafe(no_mangle)]
-pub extern "C" fn _start() -> ! {
+use bootloader::{entry_point, BootInfo};
+
+#[cfg(test)]
+entry_point!(test_kernel_main);
+
+/// Punto de entrada para `cargo test`
+#[cfg(test)]
+fn test_kernel_main(_boot_info: &'static BootInfo) -> ! {
+    // como antes
+    init();
     test_main();
     hlt_loop();
 }

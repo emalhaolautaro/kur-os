@@ -12,6 +12,8 @@ kur-os es un proyecto educativo enfocado en la implementación de un sistema ope
 | Serial Port | ✅ Funcional | Comunicación vía UART para debugging en la terminal del host |
 | GDT/TSS | ✅ Funcional | Global Descriptor Table con Task State Segment para stacks de excepciones |
 | IDT | ✅ Funcional | Interrupt Descriptor Table con handlers para breakpoint y double fault |
+| Paginación | ✅ Funcional | Gestión de memoria virtual con tablas de páginas de 4 niveles (x86_64) |
+| Frame Allocator | ✅ Funcional | Asignador de marcos físicos basado en el mapa de memoria del bootloader |
 | Testing Framework | ✅ Funcional | Sistema de pruebas unitarias e integración en QEMU |
 
 ## 🏗️ Arquitectura del Proyecto
@@ -19,9 +21,10 @@ kur-os es un proyecto educativo enfocado en la implementación de un sistema ope
 ```text
 src/
 ├── lib.rs          # Núcleo del kernel, expone módulos y función init()
-├── main.rs         # Punto de entrada (_start)
+├── main.rs         # Punto de entrada (kernel_main)
 ├── gdt.rs          # Global Descriptor Table y Task State Segment
 ├── interrupts.rs   # Interrupt Descriptor Table y handlers de excepciones
+├── memory.rs       # Paginación, traducción de direcciones y frame allocator
 ├── vga_buffer.rs   # Driver para el buffer VGA en modo texto
 └── serial.rs       # Driver para el puerto serie COM1
 ```
@@ -78,6 +81,46 @@ Ejecuta:
 - Unit tests en la biblioteca
 - Integration tests (`basic_boot.rs`)
 - Negative testing (`should_panic.rs`)
+
+## 🔮 Puntos a Mejorar
+
+Mejoras planificadas para futuras versiones del kernel:
+
+### Alta Prioridad
+
+| Mejora | Motivo | Complejidad |
+|--------|--------|-------------|
+| **Heap Allocator** | Necesario para estructuras dinámicas (`Box`, `Vec`, etc.) | Media |
+| **Async/Await** | Multitarea cooperativa sin overhead de threads | Media-Alta |
+
+### Media Prioridad
+
+| Mejora | Motivo | Complejidad |
+|--------|--------|-------------|
+| **Migrar a UEFI** | BIOS legacy está obsoleto; UEFI ofrece mejor soporte de hardware moderno | Media |
+| **Actualizar bootloader 0.9 → 0.11** | Builds más rápidos, soporte nativo UEFI, mejor arquitectura | Media |
+
+### Baja Prioridad (la implementación actual es suficiente)
+
+| Componente | Estado Actual | Análisis |
+|------------|---------------|----------|
+| **Paginación** | ✅ Adecuada | Usa `OffsetPageTable` de x86_64, soporta mapeo/traducción de páginas 4KiB. Suficiente para heap y async. Huge pages (2MiB/1GiB) solo serían necesarias para optimización de TLB en cargas intensivas. |
+| **Frame Allocator** | ⚠️ Funcional pero ineficiente | Actualmente itera desde el inicio en cada asignación (O(n)). Aceptable para aprendizaje. Una mejora sería usar bitmap o buddy allocator para O(1). |
+| **Traducción de direcciones** | ✅ Adecuada | Implementación manual que recorre los 4 niveles de tablas. Alternativa: usar `mapper.translate_addr()` del trait `Translate`. |
+
+### Notas sobre el Frame Allocator
+
+El allocator actual tiene una limitación de diseño:
+
+```rust
+fn allocate_frame(&mut self) -> Option<PhysFrame> {
+    let frame = self.usable_frames().nth(self.next);  // Itera desde 0 cada vez
+    self.next += 1;
+    frame
+}
+```
+
+Cada llamada a `allocate_frame()` recrea el iterador y avanza `n` posiciones. Para un kernel real, se recomienda cachear los frames disponibles en una estructura de datos eficiente.
 
 ## 🎓 Contexto Académico
 

@@ -1,5 +1,3 @@
-
-
 #![no_std]
 #![no_main]
 #![feature(custom_test_frameworks)]
@@ -8,22 +6,30 @@
 
 use core::panic::PanicInfo;
 use kur_os::println;
+use bootloader::{BootInfo, entry_point};
 
+entry_point!(kernel_main);
 
-#[unsafe(no_mangle)]
-pub extern "C" fn _start() -> ! {
-    println!("Hola");
+fn kernel_main(boot_info: &'static BootInfo) -> ! {
+    use kur_os::memory;
+    use x86_64::VirtAddr;
 
+    println!("Hola desde el kernel!");
     kur_os::init();
 
-    println!("Probando interrupciones");
+    // Inicializar el subsistema de memoria
+    let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
+    let _mapper = unsafe { memory::init(phys_mem_offset) };
+    let _frame_allocator = unsafe {
+        memory::BootInfoFrameAllocator::init(&boot_info.memory_map)
+    };
 
-    x86_64::instructions::interrupts::int3();
+    println!("Memoria inicializada correctamente.");
 
     #[cfg(test)]
     test_main();
-    
-    kur_os::hlt_loop(); 
+
+    kur_os::hlt_loop();
 }
 
 
