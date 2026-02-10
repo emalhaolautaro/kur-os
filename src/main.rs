@@ -10,13 +10,12 @@ use bootloader::{BootInfo, entry_point};
 
 extern crate alloc;
 
-use alloc::{boxed::Box, vec, vec::Vec, rc::Rc};
-
 entry_point!(kernel_main);
 
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
     use kur_os::memory;
     use kur_os::allocator;
+    use kur_os::task::{Task, executor::Executor, keyboard};
     use x86_64::VirtAddr;
 
     println!("Hola desde el kernel!");
@@ -33,26 +32,22 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     allocator::init_heap(&mut mapper, &mut frame_allocator)
         .expect("falló la inicialización del heap");
 
-    let heap_value = Box::new(41);
-    println!("valor del heap en {:p}", heap_value);
-
-    let mut vec = Vec::new();
-    for i in 0..500 {
-        vec.push(i);
-    }
-    println!("vector en {:p}", vec.as_slice());
-
-    let reference_counted = Rc::new(vec![1, 2, 3]);
-    let cloned_reference = reference_counted.clone();
-    println!("el conteo de referencia actual es {}", Rc::strong_count(&cloned_reference));
-    core::mem::drop(reference_counted);
-    println!("el conteo de referencia ahora es {} ahora", Rc::strong_count(&cloned_reference));
-
     #[cfg(test)]
     test_main();
 
-    println!("¡No se cayó!");
-    kur_os::hlt_loop();
+    let mut executor = Executor::new();
+    executor.spawn(Task::new(example_task()));
+    executor.spawn(Task::new(keyboard::print_keypresses()));
+    executor.run();
+}
+
+async fn async_number() -> u32 {
+    42
+}
+
+async fn example_task() {
+    let number = async_number().await;
+    println!("número async: {}", number);
 }
 
 #[cfg(not(test))]

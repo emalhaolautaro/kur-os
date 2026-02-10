@@ -22,6 +22,8 @@ pub mod memory;
 pub mod buddy;
 pub mod slab;
 pub mod allocator;
+pub mod rng;
+pub mod task;
 
 // ----------------- KERNEL RUNTIME -----------------
 

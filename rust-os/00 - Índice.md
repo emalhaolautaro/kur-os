@@ -19,6 +19,7 @@
 | [[08 - Buddy Allocator]] | Asignador "mayorista" por potencias de 2 | `buddy.rs` |
 | [[09 - Slab Allocator]] | Caches de tamaño fijo para objetos pequeños | `slab.rs` |
 | [[10 - Testing]] | Framework de tests, QEMU, tests de integración | `tests/` |
+| [[11 - Async Await]] | Multitarea cooperativa, executor con wakers, teclado async | `task/` |
 
 ---
 
@@ -34,7 +35,7 @@ bootloader → kernel_main()
   ├─ memory::init()            → OffsetPageTable
   ├─ BootInfoFrameAllocator    → marcos físicos
   ├─ allocator::init_heap()    → mapear heap + Buddy+Slab
-  └─ hlt_loop()                → esperar interrupciones
+  └─ Executor::run()           → tareas async (teclado, etc.)
 ```
 
 ---
@@ -51,5 +52,8 @@ bootloader → kernel_main()
 | `pic8259` | 0.11.0 | Controlador PIC encadenado |
 | `uart_16550` | 0.3.0 | Puerto serie UART |
 | `pc-keyboard` | 0.8.0 | Decodificación de scancodes |
+| `crossbeam-queue` | 0.3 | Cola lock-free (`ArrayQueue`) para scancodes |
+| `conquer-once` | 0.4 | `OnceCell` para `no_std` |
+| `futures-util` | 0.3 | Traits `Stream`, `StreamExt`, `AtomicWaker` |
 
 > **Nota:** `linked_list_allocator` aparece como dependencia pero actualmente no se usa; fue reemplazado por la implementación propia Buddy+Slab.
