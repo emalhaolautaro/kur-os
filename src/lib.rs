@@ -7,6 +7,7 @@
 
 use core::panic::PanicInfo;
 
+extern crate alloc;
 // ----------------- MODULOS -----------------
 
 #[macro_use]
@@ -18,6 +19,9 @@ pub mod vga_buffer;
 pub mod gdt;
 pub mod interrupts;
 pub mod memory;
+pub mod buddy;
+pub mod slab;
+pub mod allocator;
 
 // ----------------- KERNEL RUNTIME -----------------
 
