@@ -9,7 +9,6 @@ use alloc::boxed::Box;
 pub mod executor;
 pub mod keyboard;
 pub mod simple_executor;
-pub mod stress_test;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TaskId(u64);

@@ -23,8 +23,8 @@ La ventaja principal es que la fusión es O(1): el buddy de un bloque se encuent
 |-----------|-------|-------------|
 | `PAGE_SIZE` | 4096 (4KB) | Tamaño mínimo de bloque |
 | `MIN_ORDER` | 12 | 2^12 = 4096 bytes |
-| `MAX_ORDER` | 17 | 2^17 = 131072 bytes (128KB) |
-| `NUM_ORDERS` | 6 | Órdenes disponibles: 12, 13, 14, 15, 16, 17 |
+| `MAX_ORDER` | 21 | 2^21 = 2097152 bytes (2MB) |
+| `NUM_ORDERS` | 10 | Órdenes disponibles: 12..21 |
 
 ---
 
@@ -80,6 +80,15 @@ Se resta `heap_start` antes del XOR y se suma después para trabajar con offsets
 ---
 
 ## Operaciones principales
+
+### `add_memory(start, size)`
+
+Añade un rango arbitrario de memoria al allocator.
+
+1. Verifica la alineación de `start` con los órdenes de bloque.
+2. Si `start` no está alineado para un orden grande, intenta con uno más pequeño.
+3. Si ni siquiera está alineado a `MIN_ORDER`, avanza `start` por `PAGE_SIZE` hasta alinearse (resiliencia ante inputs desalineados).
+4. Divide el rango en bloques del mayor orden posible y los libera (`free_block`) para que se integren a las listas.
 
 ### `allocate(size) -> *mut u8`
 

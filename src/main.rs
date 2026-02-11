@@ -22,15 +22,13 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     kur_os::init();
 
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
-    let mut mapper = unsafe { memory::init(phys_mem_offset) };
-    let mut frame_allocator = unsafe {
-        memory::BootInfoFrameAllocator::init(&boot_info.memory_map)
-    };
+    unsafe {
+        memory::init(phys_mem_offset, &boot_info.memory_map);
+    }
 
     println!("Memoria inicializada correctamente.");
 
-    allocator::init_heap(&mut mapper, &mut frame_allocator)
-        .expect("falló la inicialización del heap");
+    allocator::init_heap().expect("falló la inicialización del heap");
 
     #[cfg(test)]
     test_main();

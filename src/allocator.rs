@@ -30,7 +30,36 @@ impl LockedSlabAllocator {
 unsafe impl GlobalAlloc for LockedSlabAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         interrupts::without_interrupts(|| {
-            self.inner.lock().allocate(layout.size(), layout.align())
+            let mut allocator = self.inner.lock();
+            let mut ptr = allocator.allocate(layout.size(), layout.align());
+            
+            if ptr.is_null() {
+                let size = layout.size().max(layout.align());
+                let block_size = size.next_power_of_two().max(crate::buddy::PAGE_SIZE);
+                
+                let current_end = allocator.start() + allocator.size();
+                
+                let start_page = Page::containing_address(VirtAddr::new(current_end as u64));
+                let end_addr = current_end + block_size;
+                let end_page = Page::containing_address(VirtAddr::new(end_addr as u64 - 1));
+                
+                let page_range = Page::range_inclusive(start_page, end_page);
+                
+                let mut mapping_success = true;
+                for page in page_range {
+                    if crate::memory::map_page(page).is_err() {
+                        mapping_success = false;
+                        break;
+                    }
+                }
+                
+                if mapping_success {
+                    allocator.add_memory(current_end, block_size);
+                    ptr = allocator.allocate(layout.size(), layout.align());
+                }
+            }
+            
+            ptr
         })
     }
 
@@ -46,15 +75,12 @@ static ALLOCATOR: LockedSlabAllocator = LockedSlabAllocator::new();
 
 use x86_64::{
     structures::paging::{
-        mapper::MapToError, FrameAllocator, Mapper, Page, PageTableFlags, Size4KiB,
+        mapper::MapToError, Page, Size4KiB,
     },
     VirtAddr,
 };
 
-pub fn init_heap(
-    mapper: &mut impl Mapper<Size4KiB>,
-    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
-) -> Result<(), MapToError<Size4KiB>> {
+pub fn init_heap() -> Result<(), MapToError<Size4KiB>> {
     let page_range = {
         let heap_start = VirtAddr::new(HEAP_START as u64);
         let heap_end = heap_start + HEAP_SIZE - 1u64;
@@ -64,30 +90,8 @@ pub fn init_heap(
     };
 
     for page in page_range {
-        let frame = frame_allocator
-            .allocate_frame()
-            .ok_or(MapToError::FrameAllocationFailed)?;
-        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-        unsafe {
-            mapper.map_to(page, frame, flags, frame_allocator)?.flush()
-        };
+        crate::memory::map_page(page)?;
     }
-
-    assert!(
-        HEAP_START % HEAP_SIZE == 0,
-        "HEAP_START ({:#x}) debe estar alineado a HEAP_SIZE ({:#x})",
-        HEAP_START, HEAP_SIZE
-    );
-    assert!(
-        HEAP_SIZE.is_power_of_two(),
-        "HEAP_SIZE ({:#x}) debe ser potencia de 2",
-        HEAP_SIZE
-    );
-    assert!(
-        HEAP_SIZE >= crate::buddy::PAGE_SIZE,
-        "HEAP_SIZE ({:#x}) debe ser >= PAGE_SIZE ({:#x})",
-        HEAP_SIZE, crate::buddy::PAGE_SIZE
-    );
 
     unsafe {
         ALLOCATOR.init(HEAP_START, HEAP_SIZE);

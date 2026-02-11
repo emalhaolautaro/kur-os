@@ -90,21 +90,39 @@ static ALLOCATOR: LockedSlabAllocator = LockedSlabAllocator::new();
 
 ---
 
+## Expansión Dinámica del Heap
+
+Originalmente, el heap tenía un tamaño fijo. Ahora soporta crecimiento bajo demanda:
+
+### Lógica en `alloc`
+
+Cuando `SlabAllocator` o `BuddyAllocator` se quedan sin memoria (`alloc` retorna `null`):
+
+1. **Calcula el tamaño necesario**: `max(layout.size, layout.align)` redondeado a la siguiente potencia de dos (mínimo 4KB).
+2. **Solicita páginas físicas**: Llama a `memory::map_page` para mapear el nuevo rango de direcciones virtuales (inmediatamente después del final actual del heap).
+3. **Añade memoria**: Llama a `allocator.add_memory(start, size)` para informar al BuddyAllocator del nuevo bloque disponible.
+4. **Reintenta**: Vuelve a intentar la asignación, que ahora debería tener éxito.
+
+```rust
+if ptr.is_null() {
+    // ... calcular nuevo bloque ...
+    // ... map_page loop ...
+    if mapping_success {
+        allocator.add_memory(current_end, block_size);
+        ptr = allocator.allocate(...);
+    }
+}
+```
+
+---
+
 ## `init_heap` — Inicialización del heap
 
 Esta función tiene dos responsabilidades:
 
-### 1. Mapear páginas virtuales a frames físicos
+### 1. Mapear el heap inicial
 
-```rust
-for page in page_range {
-    let frame = frame_allocator.allocate_frame()?;
-    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-    mapper.map_to(page, frame, flags, frame_allocator)?.flush();
-}
-```
-
-Itera sobre todas las páginas del rango `[HEAP_START, HEAP_START + HEAP_SIZE)` y las mapea a frames físicos obtenidos del `BootInfoFrameAllocator`.
+Itera sobre todas las páginas del rango inicial `[HEAP_START, HEAP_START + HEAP_SIZE)` y las mapea usando `memory::map_page`.
 
 ### 2. Inicializar el Buddy+Slab
 
@@ -112,7 +130,7 @@ Itera sobre todas las páginas del rango `[HEAP_START, HEAP_START + HEAP_SIZE)` 
 ALLOCATOR.init(HEAP_START, HEAP_SIZE);
 ```
 
-Le dice al `SlabAllocator` (y al `BuddyAllocator` interno) dónde empieza y cuánto mide la memoria del heap.
+Le dice al `SlabAllocator` (y al `BuddyAllocator` interno) dónde empieza y cuánto mide la memoria inicial. A partir de aquí, el heap puede crecer más allá de `HEAP_SIZE`.
 
 ---
 
@@ -123,13 +141,11 @@ Box::new(42)
   └─ GlobalAlloc::alloc(Layout { size: 4, align: 4 })
        └─ without_interrupts
             └─ SlabAllocator::allocate(size=4, align=4)
-                 └─ effective_size = max(4, 4) = 4
-                 └─ 4 ≤ 2048 → buscar cache de 8 bytes
-                      └─ SlabCache(8)::allocate()
-                           └─ ¿hay slab parcial? → tomar objeto
-                           └─ si no → BuddyAllocator::allocate(4096)
-                                       → crear nuevo Slab
-                                       → tomar primer objeto
+                 └─ ...
+                 └─ si falla (OOM) → Expandir Heap
+                      └─ memory::map_page(new_pages)
+                      └─ BuddyAllocator::add_memory(new_block)
+                      └─ Reintentar asignación
 ```
 
 ---

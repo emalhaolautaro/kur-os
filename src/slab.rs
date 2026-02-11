@@ -160,6 +160,18 @@ impl SlabAllocator {
         self.buddy.init(heap_start, heap_size);
     }
 
+    pub unsafe fn add_memory(&mut self, start: usize, size: usize) {
+        self.buddy.add_memory(start, size);
+    }
+
+    pub fn start(&self) -> usize {
+        self.buddy.start()
+    }
+
+    pub fn size(&self) -> usize {
+        self.buddy.size()
+    }
+
     pub fn allocate(&mut self, size: usize, align: usize) -> *mut u8 {
         let effective_size = size.max(align);
 

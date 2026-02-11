@@ -105,6 +105,8 @@ pub struct SlabAllocator {
 }
 ```
 
+El `SlabAllocator` actúa como fachada. Expone métodos como `add_memory` que delegan directamente al `BuddyAllocator`, permitiendo que el sistema crezca dinámicamente.
+
 ### Lógica de despacho
 
 ```rust

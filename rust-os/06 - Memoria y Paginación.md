@@ -20,15 +20,19 @@ Esto simplifica enormemente el acceso a page tables, ya que cualquier frame fís
 ## Inicialización (`memory::init`)
 
 ```rust
-pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
+pub unsafe fn init(physical_memory_offset: VirtAddr, memory_map: &'static MemoryMap) {
     let level_4_table = active_level_4_table(physical_memory_offset);
-    OffsetPageTable::new(level_4_table, physical_memory_offset)
+    let mapper = OffsetPageTable::new(level_4_table, physical_memory_offset);
+    let frame_allocator = BootInfoFrameAllocator::init(memory_map);
+
+    *MAPPER.lock() = Some(mapper);
+    *FRAME_ALLOCATOR.lock() = Some(frame_allocator);
 }
 ```
 
-1. Lee el registro `CR3` para obtener la dirección física de la tabla de páginas de nivel 4
-2. Convierte a dirección virtual usando el offset
-3. Crea un `OffsetPageTable` — abstracción del crate `x86_64` que maneja la traducción de 4 niveles
+1. Lee el registro `CR3` para obtener la dirección física de la tabla de páginas de nivel 4.
+2. Inicializa las estructuras `OffsetPageTable` y `BootInfoFrameAllocator`.
+3. Almacena estas instancias en variables estáticas globales protegidas por `Mutex` (`MAPPER` y `FRAME_ALLOCATOR`), permitiendo acceso seguro desde cualquier parte del kernel (crucial para el allocator).
 
 ### `active_level_4_table`
 
@@ -42,9 +46,25 @@ unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut
 }
 ```
 
-> **Unsafe por dos razones:**
-> 1. El caller debe garantizar que el offset es correcto
-> 2. Solo debe llamarse una vez para evitar crear dos `&mut` al mismo page table
+---
+
+## Mapeo Dinámico (`map_page`)
+
+Para soportar la **expansión del heap**, el módulo de memoria expone una función pública segura:
+
+```rust
+pub fn map_page(page: Page) -> Result<(), MapToError<Size4KiB>> {
+    // ... obtiene locks a MAPPER y FRAME_ALLOCATOR ...
+    if mapper.translate_page(page).is_ok() {
+        return Ok(()); // Idempotente: si ya existe, éxito.
+    }
+    let frame = frame_allocator.allocate_frame()?;
+    unsafe { mapper.map_to(page, frame, flags, frame_allocator)?.flush() };
+    Ok(())
+}
+```
+
+Esto permite al allocator solicitar memoria física arbitraria para nuevas páginas virtuales bajo demanda.
 
 ---
 
@@ -70,39 +90,11 @@ Cada tabla tiene 512 entradas (9 bits de índice × 4 niveles = 36 bits + 12 bit
 
 ## Traducción manual (`translate_addr`)
 
-Además del `OffsetPageTable` del crate `x86_64`, el módulo implementa una traducción manual de 4 niveles como ejercicio educativo:
-
-```rust
-fn translate_addr_inner(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Option<PhysAddr> {
-    let table_indexes = [
-        addr.p4_index(), addr.p3_index(), addr.p2_index(), addr.p1_index()
-    ];
-    let mut frame = level_4_table_frame; // desde CR3
-
-    for &index in &table_indexes {
-        let table = /* convertir frame físico a referencia virtual */;
-        frame = match entry.frame() {
-            Ok(frame) => frame,
-            Err(FrameNotPresent) => return None,
-            Err(HugeFrame) => panic!("páginas grandes no soportadas"),
-        };
-    }
-
-    Some(frame.start_address() + addr.page_offset())
-}
-```
-
-Recorre los 4 niveles de la tabla de páginas, resolviendo cada índice hasta llegar al frame físico final. No soporta huge pages (2MB/1GB).
-
-> **Decisión de diseño:** La función unsafe `translate_addr` delega a `translate_addr_inner` (función segura) para limitar el alcance del bloque unsafe.
+Se mantiene `translate_addr` como ejercicio educativo y fallback, delegando a `translate_addr_inner`.
 
 ---
 
 ## Frame Allocator
-
-### `EmptyFrameAllocator`
-
-Implementación stub que siempre retorna `None`. Se usaba antes de tener el allocator real.
 
 ### `BootInfoFrameAllocator`
 
@@ -121,32 +113,23 @@ pub struct BootInfoFrameAllocator {
 MemoryMap → filtrar regiones USABLE → expandir en frames de 4KB → PhysFrame
 ```
 
-1. Filtra las regiones marcadas como `Usable` por el bootloader
-2. Expande cada región en direcciones de frame (step_by 4096)
-3. Convierte cada dirección a un `PhysFrame`
-
-#### Limitación actual
-
-El método `allocate_frame()` usa `nth(self.next)` que recrea el iterador completo cada vez. Esto es **O(n)** donde n es el número de frames ya asignados.
-
-> **Posible mejora futura:** Cachear el estado del iterador o usar un bitmap para tracking de frames disponibles.
-
 ---
 
 ## Ejemplo de mapeo (`create_example_mapping`)
 
-Función de prueba que mapea una página arbitraria al frame VGA (`0xb8000`):
+Función de prueba que mapea una página arbitraria al frame VGA (`0xb8000`), usando ahora los recursos globales:
 
 ```rust
-pub fn create_example_mapping(
-    page: Page,
-    mapper: &mut OffsetPageTable,
-    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
-) {
-    let frame = PhysFrame::containing_address(PhysAddr::new(0xb8000));
-    let flags = Flags::PRESENT | Flags::WRITABLE;
-    mapper.map_to(page, frame, flags, frame_allocator).flush();
+pub fn create_example_mapping(page: Page) {
+    let mut mapper_lock = MAPPER.lock();
+    let mut frame_allocator_lock = FRAME_ALLOCATOR.lock();
+    
+    if let (Some(mapper), Some(frame_allocator)) = (mapper_lock.as_mut(), frame_allocator_lock.as_mut()) {
+        let frame = PhysFrame::containing_address(PhysAddr::new(0xb8000));
+        let flags = Flags::PRESENT | Flags::WRITABLE;
+        unsafe {
+            mapper.map_to(page, frame, flags, frame_allocator).expect("failed").flush();
+        }
+    }
 }
 ```
-
-Útil para verificar que el sistema de paginación funciona correctamente.

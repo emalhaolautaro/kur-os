@@ -4,7 +4,7 @@ use core::ptr;
 
 pub const PAGE_SIZE: usize = 4096;
 pub const MIN_ORDER: usize = 12;
-pub const MAX_ORDER: usize = 17;
+pub const MAX_ORDER: usize = 21; // 2 MB
 const NUM_ORDERS: usize = MAX_ORDER - MIN_ORDER + 1;
 
 #[repr(C)]
@@ -27,19 +27,58 @@ impl BuddyAllocator {
         }
     }
 
+    pub fn start(&self) -> usize {
+        self.heap_start
+    }
+
+    pub fn size(&self) -> usize {
+        self.heap_size
+    }
+
     pub unsafe fn init(&mut self, heap_start: usize, heap_size: usize) {
-        assert!(heap_start % PAGE_SIZE == 0, "heap_start debe estar alineado a página");
+        self.add_memory(heap_start, heap_size);
+    }
 
-        self.heap_start = heap_start;
-        self.heap_size = heap_size;
+    pub unsafe fn add_memory(&mut self, start: usize, size: usize) {
+        if self.heap_start == 0 {
+            self.heap_start = start;
+        }
+        
+        let mut current_start = start;
+        let mut remaining_size = size;
 
-        let max_block_order = self.size_to_order(heap_size).min(MAX_ORDER);
+        while remaining_size > 0 {
+            let max_order = core::cmp::min(
+                MAX_ORDER,
+                self.size_to_order(remaining_size)
+            );
+            
+            let mut order = max_order;
+            while order >= MIN_ORDER {
+                let size = 1 << order;
+                if current_start % size == 0 {
+                    break;
+                }
+                order -= 1;
+            }
+            
+            if order < MIN_ORDER {
+                 current_start += PAGE_SIZE;
+                 remaining_size -= PAGE_SIZE;
+                 continue;
+            }
 
-        let block = heap_start as *mut FreeBlock;
-        (*block).next = None;
+             let size = 1 << order;
 
-        let list_index = max_block_order - MIN_ORDER;
-        self.free_lists[list_index] = ptr::NonNull::new(block);
+             let block = current_start as *mut FreeBlock;
+             (*block).next = None; 
+             
+             self.free_block(current_start, order);
+
+             current_start += size;
+             remaining_size -= size;
+             self.heap_size += size;
+        }
     }
 
     pub fn allocate(&mut self, size: usize) -> *mut u8 {
